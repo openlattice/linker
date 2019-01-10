@@ -5,7 +5,6 @@ blacklist:
   - c5512075-bbf4-4b74-80f3-391dbaf0bc7d
   - 8c9e3bcf-89df-4049-a24e-2322037162a4
   - 152eb3e4-c9b3-4ecc-89b8-a19e81677d09
-  - efd3a154-dbc7-4a09-9062-72f131e8fcce
   - 72b3feaa-07e5-43ea-8b4f-8355917d429a
   - fbf8ec4d-4ec8-418f-9a0e-618521978dc0
   - 2ef9d5ce-0245-4f85-95ab-6e4b06f8c8a7
@@ -29,6 +28,8 @@ whitelist:
   - e9dc56bf-7cf9-4e25-8969-1ac4c1b1e1ec
   - 51992ab5-c315-4696-be93-7780c29d490f
   - 06a7f19e-c7d5-4453-bfe9-6810d907cd7a
+  - 6b32e5a9-9858-449a-a228-8340486d84b7 # JC1
+  - b278d952-3bad-420e-9e0d-f66352760f42 # JC2
 
   # Only for rehearsal tests
   - 91551726-afa2-4aee-8579-46cdfc610b97
