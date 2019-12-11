@@ -32,21 +32,20 @@ import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.hazelcast.HazelcastQueue
 import com.openlattice.rhizome.core.service.ContinuousRepeatingTaskService
 import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Component
 import java.sql.Connection
 import java.util.*
 import java.util.concurrent.TimeUnit
 
 internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30000L
-internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120000L
+internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120_000L
 internal const val MINIMUM_SCORE = 0.75
+
 /**
  * Performs realtime linking of individuals as they are integrated ino the system.
  */
-@Component
 class BackgroundLinkingService(
-        private val executor: ListeningExecutorService,
-        private val hazelcastInstance: HazelcastInstance,
+        executor: ListeningExecutorService,
+        hazelcastInstance: HazelcastInstance,
         private val blocker: Blocker,
         private val matcher: Matcher,
         private val ids: EntityKeyIdService,
