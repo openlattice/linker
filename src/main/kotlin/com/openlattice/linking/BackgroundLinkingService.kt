@@ -21,46 +21,32 @@
 
 package com.openlattice.linking
 
-import com.codahale.metrics.annotation.Timed
 import com.google.common.base.Stopwatch
 import com.google.common.collect.Sets
-import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.ListeningExecutorService
-import com.hazelcast.aggregation.Aggregators
 import com.hazelcast.core.HazelcastInstance
-import com.hazelcast.query.Predicate
-import com.hazelcast.query.Predicates
-import com.hazelcast.query.QueryConstants
 import com.openlattice.data.EntityDataKey
 import com.openlattice.data.EntityKeyIdService
 import com.openlattice.edm.EntitySet
-import com.openlattice.edm.PostgresEdmManager
 import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.hazelcast.HazelcastQueue
+import com.openlattice.rhizome.core.service.ContinuousRepeatingTaskService
 import org.slf4j.LoggerFactory
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
 import java.sql.Connection
-import java.time.Instant
 import java.util.*
-import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.math.exp
 
 internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30000L
 internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120000L
 internal const val MINIMUM_SCORE = 0.75
-
 /**
  * Performs realtime linking of individuals as they are integrated ino the system.
  */
 @Component
-class BackgroundLinkingService
-(
+class BackgroundLinkingService(
         private val executor: ListeningExecutorService,
         private val hazelcastInstance: HazelcastInstance,
-        private val pgEdmManager: PostgresEdmManager,
         private val blocker: Blocker,
         private val matcher: Matcher,
         private val ids: EntityKeyIdService,
@@ -70,95 +56,40 @@ class BackgroundLinkingService
         private val linkableTypes: Set<UUID>,
         private val linkingLogService: LinkingLogService,
         private val configuration: LinkingConfiguration
+): ContinuousRepeatingTaskService<EntityDataKey>(
+        executor,
+        hazelcastInstance,
+        LoggerFactory.getLogger(BackgroundLinkingService::class.java),
+        HazelcastQueue.LINKING_CANDIDATES.name,
+        HazelcastMap.LINKING_LOCKS.name,
+        configuration.parallelism,
+        configuration.loadSize,
+        LINKING_BATCH_TIMEOUT_MILLIS
 ) {
+
     companion object {
         private val logger = LoggerFactory.getLogger(BackgroundLinkingService::class.java)
     }
 
-
     private val entitySets = hazelcastInstance.getMap<UUID, EntitySet>(HazelcastMap.ENTITY_SETS.name)
 
-    private val linkingLocks = hazelcastInstance.getMap<EntityDataKey, Long>(HazelcastMap.LINKING_LOCKS.name)
-    private val linkingSet = hazelcastInstance.getSet<EntityDataKey>("linking_set")
-
-    private val enqueuer = executor.submit {
-        try {
-            while (true) {
-                //TODO: Switch to unlimited entity sets
-
-                val ess = entitySets.values
-                logger.info("Starting to queue linking candidates from entity sets {}", ess)
-                ess
-                        .asSequence()
-                        .filter { linkableTypes.contains(it.entityTypeId) }
-                        .flatMap { es ->
-                            val forLinking = lqs.getEntitiesNeedingLinking(es.id, 2 * configuration.loadSize)
-                                    .filter {
-//                                        !linkingSet.contains(it)
-                                        val expiration = lockOrGetExpiration(it)
-                                        logger.debug(
-                                                "Considering candidate {} with expiration {} at {}",
-                                                it,
-                                                expiration,
-                                                Instant.now().toEpochMilli()
-                                        )
-                                        if (expiration != null && Instant.now().toEpochMilli() >= expiration) {
-                                            logger.info("Refreshing expiration for {}", it)
-                                            //Assume original lock holder died, probably somewhat unsafe
-                                            refreshExpiration(it)
-                                            true
-                                        } else expiration == null
-                                    }
-                            logger.info("Entities needing linking: {}", forLinking)
-                            forLinking.asSequence()
-                        }
-                        .chunked(configuration.loadSize)
-                        .forEach { keys ->
-                            candidates.addAll(keys)
-                            logger.info(
-                                    "Queued entities needing linking {} from ({}).",
-                                    keys,
-                                    entitySets.getAll(keys.map { it.entitySetId }.toSet()).values.map { it.name }
-                            )
-                        }
-            }
-        } catch (ex: Exception) {
-            logger.info("Encountered error while updating candidates for linking.", ex)
-        }
+    override fun startupChecks() {
+        return
     }
-    private val candidates = hazelcastInstance.getQueue<EntityDataKey>(HazelcastQueue.LINKING_CANDIDATES.name)
-    private val limiter = Semaphore(configuration.parallelism)
 
-    @Suppress("UNUSED")
-    private val linkingWorker = if (isLinkingEnabled()) executor.submit {
-        generateSequence { candidates.take() }
-                .map { candidate ->
-                    limiter.acquire()
-                    executor.submit {
-                        try {
-                            logger.info("Linking {}", candidate)
-                            link(candidate)
-                        } catch (ex: Exception) {
-                            logger.error("Unable to link $candidate. ", ex)
-                        } finally {
-//                            linkingSet.remove(candidate)
-                            unlock(candidate)
-                            limiter.release()
-                        }
-                    }
-                }.forEach { it.get() }
-    } else null
+    override fun sourceSet(): Sequence<EntityDataKey> {
+        return entitySets.values.asSequence()
+                .filter { linkableTypes.contains(it.entityTypeId) }
+                .map { it.id }
+                .flatMap { esid ->
+                    lqs.getEntitiesNeedingLinking(esid, 2 * configuration.loadSize).asSequence()
+                }
+    }
 
+    override fun operate(candidate: EntityDataKey) {
+        link(candidate)
+    }
 
-    /**
-     * Links a candidate entity to other matching entities.
-     *
-     * 1) Uses the results of blocking to identify candidate clusters
-     * 2) Insert the results of the match scores
-     * 3) Update the linked entities table.
-     *
-     * @param candidate The data key for the entity to perform linking upon.
-     */
     private fun link(candidate: EntityDataKey) {
         clearNeighborhoods(candidate)
         // if we have positive feedbacks on entity, we use its linking id and match them together
@@ -251,20 +182,6 @@ class BackgroundLinkingService
         return ScoredCluster(identifiedCluster.key, matchedCluster, score)
     }
 
-    private fun <T> collectKeys(m: Map<EntityDataKey, Map<EntityDataKey, T>>): Set<EntityDataKey> {
-        return m.keys + m.values.flatMap { it.keys }
-    }
-
-    private fun clearNeighborhoods(candidate: EntityDataKey) {
-        logger.debug("Starting neighborhood cleanup of {}", candidate)
-        val positiveFeedbacks = linkingFeedbackService.getLinkingFeedbackEntityKeyPairs(
-                FeedbackType.Positive, candidate
-        )
-
-        val clearedCount = lqs.deleteNeighborhood(candidate, positiveFeedbacks)
-        logger.debug("Cleared {} neighbors from neighborhood of {}", clearedCount, candidate)
-    }
-
     private fun insertMatches(
             conn: Connection,
             linkingId: UUID,
@@ -312,73 +229,31 @@ class BackgroundLinkingService
         linkingLogService.createOrUpdateCluster(linkingId, scoresAsEsidToEkids, newCluster)
     }
 
-    /**
-     * @return Null if locked, expiration in millis otherwise.
-     */
-    private fun lockOrGetExpiration(candidate: EntityDataKey): Long? {
-//        try {
-//            linkingLocks.lock(candidate)
-//
-//            val expiration = linkingLocks[candidate]
-//            if (expiration == null || Instant.now().toEpochMilli() > expiration) {
-//                logger.info("Lock or get is refreshing expiration for {}", candidate)
-//                refreshExpiration(candidate)
-//            }
-//            return expiration
-//        } finally {
-//            linkingLocks.unlock(candidate)
-//        }
-       return      linkingLocks.putIfAbsent(
-                    candidate,
-                    Instant.now().plusMillis(LINKING_BATCH_TIMEOUT_MILLIS).toEpochMilli(),
-                    LINKING_BATCH_TIMEOUT_MILLIS,
-                    TimeUnit.MILLISECONDS
-            )
+    private fun clearNeighborhoods(candidate: EntityDataKey) {
+        logger.debug("Starting neighborhood cleanup of {}", candidate)
+        val positiveFeedbacks = linkingFeedbackService.getLinkingFeedbackEntityKeyPairs(
+                FeedbackType.Positive, candidate
+        )
+
+        val clearedCount = lqs.deleteNeighborhood(candidate, positiveFeedbacks)
+        logger.debug("Cleared {} neighbors from neighborhood of {}", clearedCount, candidate)
     }
 
-    /**
-     * @return Null if locked, expiration in millis otherwise.
-     */
-    private fun refreshExpiration(candidate: EntityDataKey) {
-        try {
-            linkingLocks.lock(candidate)
+    private fun <T> collectKeys(m: Map<EntityDataKey, Map<EntityDataKey, T>>): Set<EntityDataKey> {
+        return m.keys + m.values.flatMap { it.keys }
+    }
 
-            linkingLocks.putIfAbsent(
-                    candidate,
-                    Instant.now().plusMillis(LINKING_BATCH_TIMEOUT_MILLIS).toEpochMilli(),
-                    LINKING_BATCH_TIMEOUT_MILLIS,
-                    TimeUnit.MILLISECONDS
-            )
-        } finally {
-            linkingLocks.unlock(candidate)
+    private fun completeLinkCluster(matchedCluster: Map<EntityDataKey, Map<EntityDataKey, Double>>): Double {
+        return matchedCluster.values.flatMap { it.values }.min() ?: 0.0
+    }
+
+    data class ScoredCluster(
+            val clusterId: UUID,
+            val cluster: Map<EntityDataKey, Map<EntityDataKey, Double>>,
+            val score: Double
+    ) : Comparable<Double> {
+        override fun compareTo(other: Double): Int {
+            return score.compareTo(other)
         }
     }
-
-    private fun isLinkingEnabled(): Boolean {
-        if (!configuration.backgroundLinkingEnabled) {
-            logger.info("Skipping task as background linking is not enabled.")
-            return false
-        }
-
-        return true
-    }
-
-    private fun unlock(candidate: EntityDataKey) {
-        linkingLocks.delete(candidate)
-    }
-}
-
-data class ScoredCluster(
-        val clusterId: UUID,
-        val cluster: Map<EntityDataKey, Map<EntityDataKey, Double>>,
-        val score: Double
-) : Comparable<Double> {
-    override fun compareTo(other: Double): Int {
-        return score.compareTo(other)
-    }
-}
-
-private fun completeLinkCluster(matchedCluster: Map<EntityDataKey, Map<EntityDataKey, Double>>): Double {
-    return matchedCluster.values.flatMap { it.values }.min() ?: 0.0
-//    return matchedCluster.values.max { it.values.max() }.java
 }
