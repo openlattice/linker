@@ -56,6 +56,7 @@ import com.openlattice.edm.schemas.SchemaQueryService;
 import com.openlattice.edm.schemas.manager.HazelcastSchemaManager;
 import com.openlattice.edm.schemas.postgres.PostgresSchemaQueryService;
 import com.openlattice.hazelcast.HazelcastQueue;
+import com.openlattice.ids.IdCipherManager;
 import com.openlattice.kindling.search.ConductorElasticsearchImpl;
 import com.openlattice.linking.LinkingConfiguration;
 import com.openlattice.linking.LinkingLogService;
@@ -290,8 +291,14 @@ public class LinkerServicesPod {
                 authorizationManager(),
                 partitionManager(),
                 dataModelService(),
+                idCipherManager(),
                 auditingConfiguration
         );
+    }
+
+    @Bean
+    public IdCipherManager idCipherManager() {
+        return new IdCipherManager( hazelcastInstance );
     }
 
     @Bean
