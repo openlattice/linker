@@ -75,8 +75,12 @@ class BackgroundLinkingService
 
     private val entitySets = HazelcastMap.ENTITY_SETS.getMap(hazelcastInstance)
 
-    override fun startupChecks() {
-        return
+    override fun enqueuerEnabledCheck(): Boolean {
+        return configuration.backgroundLinkingEnabled
+    }
+
+    override fun workerEnabledCheck(): Boolean {
+        return configuration.backgroundLinkingEnabled
     }
 
     override fun sourceSequence(): Sequence<EntityDataKey> {
