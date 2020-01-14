@@ -37,7 +37,7 @@ import java.sql.Connection
 import java.util.*
 import java.util.concurrent.TimeUnit
 
-internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30000L
+internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30_000L
 internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120_000L
 internal const val MINIMUM_SCORE = 0.75
 
@@ -58,13 +58,13 @@ class BackgroundLinkingService
         private val linkableTypes: Set<UUID>,
         private val linkingLogService: LinkingLogService,
         private val configuration: LinkingConfiguration
-): ContinuousRepeatingTaskService<EntityDataKey>(
+): ContinuousRepeatingTaskService<EntityDataKey, EntityDataKey>(
         executor,
-        hazelcastInstance,
         LoggerFactory.getLogger(BackgroundLinkingService::class.java),
-        HazelcastQueue.LINKING_CANDIDATES.name,
-        HazelcastMap.LINKING_LOCKS.name,
+        HazelcastQueue.LINKING_CANDIDATES.getQueue(hazelcastInstance),
+        HazelcastMap.LINKING_LOCKS.getMap(hazelcastInstance),
         configuration.parallelism,
+        { entityDataKey -> entityDataKey },
         configuration.loadSize,
         LINKING_BATCH_TIMEOUT_MILLIS
 ) {
