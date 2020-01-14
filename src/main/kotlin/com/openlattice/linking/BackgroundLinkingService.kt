@@ -76,7 +76,7 @@ class BackgroundLinkingService(
         return
     }
 
-    override fun sourceSet(): Sequence<EntityDataKey> {
+    override fun sourceSequence(): Sequence<EntityDataKey> {
         return entitySets.values.asSequence()
                 .filter { linkableTypes.contains(it.entityTypeId) }
                 .map { it.id }
