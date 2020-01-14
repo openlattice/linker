@@ -26,11 +26,11 @@ import com.openlattice.authorization.AclKey
 import com.openlattice.authorization.AuthorizationManager
 import com.openlattice.authorization.AuthorizingComponent
 import com.openlattice.data.EntityDataKey
-import com.openlattice.data.storage.EntityDatastore
 import com.openlattice.data.storage.IndexingMetadataManager
 import com.openlattice.datastore.services.EdmManager
 import com.openlattice.datastore.services.EntitySetManager
 import com.openlattice.linking.*
+import com.openlattice.linking.graph.PostgresLinkingQueryService
 import com.openlattice.linking.util.PersonMetric
 import com.openlattice.linking.util.PersonProperties
 import org.slf4j.LoggerFactory
@@ -48,7 +48,7 @@ constructor(
         private val matcher: Matcher,
         private val dataLoader: DataLoader,
         private val edm: EdmManager,
-        private val entityDataStore: EntityDatastore,
+        private val linkingQueryService: PostgresLinkingQueryService,
         private val dataManager: IndexingMetadataManager,
         private val entitySetManager: EntitySetManager
 ) : LinkingFeedbackApi, AuthorizingComponent {
@@ -62,17 +62,13 @@ constructor(
 
     @PutMapping(path = [], produces = [MediaType.APPLICATION_JSON_VALUE])
     override fun addLinkingFeedback(@RequestBody feedback: LinkingFeedback): Int {
-        if (feedback.link.isEmpty() || feedback.link.size + feedback.unlink.size < 2) {
-            throw IllegalArgumentException(
-                    "Cannot submit feedback for less than 2 entities or if no positively linking entity is provided"
-            )
+        require(feedback.link.isNotEmpty() && (feedback.link.size + feedback.unlink.size) >= 2) {
+            "Cannot submit feedback for less than 2 entities or if no positively linking entity is provided."
         }
 
         val interSection = Sets.intersection(feedback.link, feedback.unlink)
-        if (!interSection.isEmpty()) {
-            throw IllegalArgumentException(
-                    "Cannot submit feedback with entities $interSection being both linking and non-linking"
-            )
+        require(interSection.isEmpty()) {
+            "Cannot submit feedback with entities $interSection being both linking and non-linking."
         }
 
         // ensure read access on linking entity set
@@ -113,17 +109,17 @@ constructor(
 
     private fun linkingFeedbackCheck(entityDataKeys: Set<EntityDataKey>, linkingEntityDataKey: EntityDataKey) {
         val linkingEntitySet = entitySetManager.getEntitySet(linkingEntityDataKey.entitySetId)!!
-        val entityKeyIdsOfLinkingId = entityDataStore
-                .getEntityKeyIdsOfLinkingIds(setOf(linkingEntityDataKey.entityKeyId)).first().second
+        val entityKeyIdsOfLinkingId = linkingQueryService.getEntityKeyIdsOfLinkingIds(
+                setOf(linkingEntityDataKey.entityKeyId),
+                linkingEntitySet.linkedEntitySets
+        ).first().second
 
         entityDataKeys.forEach { entityDataKey ->
-            if (!linkingEntitySet.linkedEntitySets.contains(entityDataKey.entitySetId)) {
-                throw IllegalArgumentException(
-                        "Feedback can only be submitted for entities contained by linking entity set")
+            require(linkingEntitySet.linkedEntitySets.contains(entityDataKey.entitySetId)) {
+                "Feedback can only be submitted for entities contained by linking entity set"
             }
-            if (!entityKeyIdsOfLinkingId.contains(entityDataKey.entityKeyId)) {
-                throw IllegalArgumentException(
-                        "Feedback can only be submitted for entities with same linking id")
+            require(entityKeyIdsOfLinkingId.contains(entityDataKey.entityKeyId)) {
+                "Feedback can only be submitted for entities with same linking id"
             }
 
             ensureReadAccess(AclKey(entityDataKey.entitySetId))

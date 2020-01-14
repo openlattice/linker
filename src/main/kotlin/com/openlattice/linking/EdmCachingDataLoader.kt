@@ -23,12 +23,9 @@ package com.openlattice.linking
 
 import com.google.common.base.Suppliers
 import com.hazelcast.core.HazelcastInstance
-import com.hazelcast.core.IMap
 import com.hazelcast.query.Predicates
 import com.openlattice.data.EntityDataKey
 import com.openlattice.data.storage.PostgresEntityDataQueryService
-import com.openlattice.edm.type.EntityType
-import com.openlattice.edm.type.PropertyType
 import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.linking.util.PersonProperties
 import com.openlattice.postgres.mapstores.EntityTypeMapstore
@@ -44,9 +41,9 @@ class EdmCachingDataLoader(
         private val dataQueryService: PostgresEntityDataQueryService,
         hazelcast: HazelcastInstance
 ) : DataLoader {
-    private val entityTypes: IMap<UUID, EntityType> = hazelcast.getMap(HazelcastMap.ENTITY_TYPES.name)
+    private val entityTypes = HazelcastMap.ENTITY_TYPES.getMap( hazelcast )
 
-    private val propertyTypes: IMap<UUID, PropertyType> = hazelcast.getMap(HazelcastMap.PROPERTY_TYPES.name)
+    private val propertyTypes = HazelcastMap.PROPERTY_TYPES.getMap( hazelcast )
     private val personEntityType = entityTypes.values(
             Predicates.equal(EntityTypeMapstore.FULLQUALIFIED_NAME_PREDICATE, PersonProperties.PERSON_TYPE_FQN.fullQualifiedNameAsString)
     ).first()

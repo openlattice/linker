@@ -28,10 +28,12 @@ import com.hazelcast.core.HazelcastInstance
 import com.openlattice.data.EntityDataKey
 import com.openlattice.data.EntityKeyIdService
 import com.openlattice.edm.EntitySet
+import com.openlattice.edm.set.EntitySetFlag
 import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.hazelcast.HazelcastQueue
 import com.openlattice.rhizome.core.service.ContinuousRepeatingTaskService
 import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Component
 import java.sql.Connection
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -43,8 +45,10 @@ internal const val MINIMUM_SCORE = 0.75
 /**
  * Performs realtime linking of individuals as they are integrated ino the system.
  */
-class BackgroundLinkingService(
-        executor: ListeningExecutorService,
+@Component
+class BackgroundLinkingService
+(
+        private val executor: ListeningExecutorService,
         hazelcastInstance: HazelcastInstance,
         private val blocker: Blocker,
         private val matcher: Matcher,
@@ -70,7 +74,7 @@ class BackgroundLinkingService(
         private val logger = LoggerFactory.getLogger(BackgroundLinkingService::class.java)
     }
 
-    private val entitySets = hazelcastInstance.getMap<UUID, EntitySet>(HazelcastMap.ENTITY_SETS.name)
+    private val entitySets = HazelcastMap.ENTITY_SETS.getMap(hazelcastInstance)
 
     override fun startupChecks() {
         return
@@ -78,7 +82,7 @@ class BackgroundLinkingService(
 
     override fun sourceSequence(): Sequence<EntityDataKey> {
         return entitySets.values.asSequence()
-                .filter { linkableTypes.contains(it.entityTypeId) }
+                .filter { linkableTypes.contains(it.entityTypeId) && !it.flags.contains(EntitySetFlag.LINKING) }
                 .map { it.id }
                 .flatMap { esid ->
                     lqs.getEntitiesNeedingLinking(esid, 2 * configuration.loadSize).asSequence()

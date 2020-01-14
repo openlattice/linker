@@ -25,12 +25,10 @@ import com.codahale.metrics.annotation.Timed
 import com.google.common.base.Stopwatch
 import com.google.common.base.Suppliers
 import com.hazelcast.core.HazelcastInstance
-import com.hazelcast.core.IMap
 import com.hazelcast.query.Predicates
 import com.openlattice.conductor.rpc.ConductorElasticsearchApi
 import com.openlattice.data.EntityDataKey
 import com.openlattice.edm.EntitySet
-import com.openlattice.edm.type.EntityType
 import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.linking.*
 import com.openlattice.linking.util.PersonProperties
@@ -56,8 +54,8 @@ class ElasticsearchBlocker(
         hazelcast: HazelcastInstance
 ) : Blocker {
 
-    private val entitySets: IMap<UUID, EntitySet> = hazelcast.getMap(HazelcastMap.ENTITY_SETS.name)
-    private val entityTypes: IMap<UUID, EntityType> = hazelcast.getMap(HazelcastMap.ENTITY_TYPES.name)
+    private val entitySets = HazelcastMap.ENTITY_SETS.getMap( hazelcast )
+    private val entityTypes = HazelcastMap.ENTITY_TYPES.getMap( hazelcast )
 
     private val personEntityType = entityTypes.values(
             Predicates.equal(EntityTypeMapstore.FULLQUALIFIED_NAME_PREDICATE, PersonProperties.PERSON_TYPE_FQN.fullQualifiedNameAsString)
