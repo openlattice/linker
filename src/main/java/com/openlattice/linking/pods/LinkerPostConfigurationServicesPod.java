@@ -38,22 +38,15 @@ import com.openlattice.data.storage.partitions.PartitionManager;
 import com.openlattice.datastore.pods.ByteBlobServicePod;
 import com.openlattice.datastore.services.EdmManager;
 import com.openlattice.datastore.services.EntitySetManager;
-import com.openlattice.datastore.services.EntitySetService;
 import com.openlattice.edm.PostgresEdmManager;
+import com.openlattice.hazelcast.HazelcastMap;
+import com.openlattice.hazelcast.HazelcastQueue;
 import com.openlattice.ids.HazelcastIdGenerationService;
-import com.openlattice.linking.BackgroundLinkingService;
-import com.openlattice.linking.Blocker;
-import com.openlattice.linking.DataLoader;
-import com.openlattice.linking.EdmCachingDataLoader;
-import com.openlattice.linking.LinkingConfiguration;
-import com.openlattice.linking.LinkingLogService;
-import com.openlattice.linking.LinkingQueryService;
-import com.openlattice.linking.Matcher;
-import com.openlattice.linking.PostgresLinkingFeedbackService;
-import com.openlattice.linking.PostgresLinkingLogService;
+import com.openlattice.linking.*;
 import com.openlattice.linking.blocking.ElasticsearchBlocker;
 import com.openlattice.linking.controllers.RealtimeLinkingController;
 import com.openlattice.linking.graph.PostgresLinkingQueryService;
+import com.openlattice.rhizome.service.ContinuousRepeatingTaskRunner;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -166,19 +159,26 @@ public class LinkerPostConfigurationServicesPod {
         return new IndexingMetadataManager( hikariDataSource, partitionManager );
     }
 
-    @Bean
-    public BackgroundLinkingService linkingService() throws IOException {
-        return new BackgroundLinkingService( executor,
-                hazelcastInstance,
-                blocker(),
-                matcher,
-                idService(),
-                dataLoader(),
-                lqs(),
-                postgresLinkingFeedbackQueryService(),
-                edm.getEntityTypeUuids( linkingConfiguration.getEntityTypes() ),
-                linkingLogService,
-                linkingConfiguration );
+    @Bean("BackgroundLinkingTask")
+    public ContinuousRepeatingTaskRunner backgroundLinkingTask() throws IOException {
+        return new ContinuousRepeatingTaskRunner(
+                executor,
+                HazelcastQueue.LINKING_CANDIDATES.getQueue(hazelcastInstance),
+                HazelcastMap.LINKING_LOCKS.getMap(hazelcastInstance),
+                linkingConfiguration.getParallelism(),
+                linkingConfiguration.getLoadSize(),
+                new BackgroundLinkingService(
+                        hazelcastInstance,
+                        blocker(),
+                        matcher,
+                        idService(),
+                        dataLoader(),
+                        lqs(),
+                        postgresLinkingFeedbackQueryService(),
+                        edm.getEntityTypeUuids( linkingConfiguration.getEntityTypes() ),
+                        linkingLogService,
+                        linkingConfiguration )
+        );
     }
 
     @Bean

@@ -23,23 +23,22 @@ package com.openlattice.linking
 
 import com.google.common.base.Stopwatch
 import com.google.common.collect.Sets
-import com.google.common.util.concurrent.ListeningExecutorService
 import com.hazelcast.core.HazelcastInstance
 import com.openlattice.data.EntityDataKey
 import com.openlattice.data.EntityKeyIdService
 import com.openlattice.edm.set.EntitySetFlag
 import com.openlattice.hazelcast.HazelcastMap
-import com.openlattice.hazelcast.HazelcastQueue
-import com.openlattice.rhizome.core.service.ContinuousRepeatingTaskService
+import com.openlattice.rhizome.service.ContinuousRepeatableTask
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.sql.Connection
 import java.util.*
 import java.util.concurrent.TimeUnit
 
-internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30_000L
-internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120_000L
 internal const val MINIMUM_SCORE = 0.75
+internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120_000L
+internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30_000L
 
 /**
  * Performs realtime linking of individuals as they are integrated ino the system.
@@ -47,7 +46,6 @@ internal const val MINIMUM_SCORE = 0.75
 @Component
 class BackgroundLinkingService
 (
-        private val executor: ListeningExecutorService,
         hazelcastInstance: HazelcastInstance,
         private val blocker: Blocker,
         private val matcher: Matcher,
@@ -58,16 +56,7 @@ class BackgroundLinkingService
         private val linkableTypes: Set<UUID>,
         private val linkingLogService: LinkingLogService,
         private val configuration: LinkingConfiguration
-): ContinuousRepeatingTaskService<EntityDataKey, EntityDataKey>(
-        executor,
-        LoggerFactory.getLogger(BackgroundLinkingService::class.java),
-        HazelcastQueue.LINKING_CANDIDATES.getQueue(hazelcastInstance),
-        HazelcastMap.LINKING_LOCKS.getMap(hazelcastInstance),
-        configuration.parallelism,
-        { entityDataKey -> entityDataKey },
-        configuration.loadSize,
-        LINKING_BATCH_TIMEOUT_MILLIS
-) {
+) : ContinuousRepeatableTask<EntityDataKey, EntityDataKey> {
 
     companion object {
         private val logger = LoggerFactory.getLogger(BackgroundLinkingService::class.java)
@@ -94,6 +83,18 @@ class BackgroundLinkingService
 
     override fun operate(candidate: EntityDataKey) {
         link(candidate)
+    }
+
+    override fun candidateLockFunction(candidate: EntityDataKey): EntityDataKey {
+        return candidate
+    }
+
+    override fun getLogger(): Logger {
+        return BackgroundLinkingService.logger
+    }
+
+    override fun getTimeoutMillis() : Long {
+        return LINKING_BATCH_TIMEOUT_MILLIS
     }
 
     private fun link(candidate: EntityDataKey) {
