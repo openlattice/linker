@@ -109,7 +109,7 @@ constructor(
 
     private fun linkingFeedbackCheck(entityDataKeys: Set<EntityDataKey>, linkingEntityDataKey: EntityDataKey) {
         val linkingEntitySet = entitySetManager.getEntitySet(linkingEntityDataKey.entitySetId)!!
-        val entityKeyIdsOfLinkingId = linkingQueryService.getEntityKeyIdsOfLinkingIds(
+        val entityKeyIdsOfLinkingId = linkingQueryService.getEntityKeyIdsByLinkingIds(
                 setOf(linkingEntityDataKey.entityKeyId),
                 linkingEntitySet.linkedEntitySets
         ).first().second
