@@ -97,6 +97,10 @@ class BackgroundLinkingService
         return LINKING_BATCH_TIMEOUT_MILLIS
     }
 
+    override fun getTaskClass(): Class<Any> {
+        return BackgroundLinkingService.javaClass
+    }
+
     private fun link(candidate: EntityDataKey) {
         clearNeighborhoods(candidate)
         // if we have positive feedbacks on entity, we use its linking id and match them together
