@@ -165,8 +165,6 @@ public class LinkerPostConfigurationServicesPod {
                 executor,
                 HazelcastQueue.LINKING_CANDIDATES.getQueue(hazelcastInstance),
                 HazelcastMap.LINKING_LOCKS.getMap(hazelcastInstance),
-                linkingConfiguration.getParallelism(),
-                linkingConfiguration.getLoadSize(),
                 new BackgroundLinkingService(
                         hazelcastInstance,
                         blocker(),
@@ -177,7 +175,9 @@ public class LinkerPostConfigurationServicesPod {
                         postgresLinkingFeedbackQueryService(),
                         edm.getEntityTypeUuids( linkingConfiguration.getEntityTypes() ),
                         linkingLogService,
-                        linkingConfiguration )
+                        linkingConfiguration ),
+                linkingConfiguration.getParallelism(),
+                linkingConfiguration.getLoadSize()
         );
     }
 
