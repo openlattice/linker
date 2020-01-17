@@ -56,7 +56,7 @@ class BackgroundLinkingService
         private val linkableTypes: Set<UUID>,
         private val linkingLogService: LinkingLogService,
         private val configuration: LinkingConfiguration
-) : ContinuousRepeatableTask<EntityDataKey, EntityDataKey> {
+) : ContinuousRepeatableTask<EntityDataKey> {
 
     companion object {
         private val logger = LoggerFactory.getLogger(BackgroundLinkingService::class.java)
@@ -83,10 +83,6 @@ class BackgroundLinkingService
 
     override fun operate(candidate: EntityDataKey) {
         link(candidate)
-    }
-
-    override fun candidateLockFunction(candidate: EntityDataKey): EntityDataKey {
-        return candidate
     }
 
     override fun getLogger(): Logger {
