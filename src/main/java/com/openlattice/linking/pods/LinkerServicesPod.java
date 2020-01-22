@@ -56,8 +56,8 @@ import com.openlattice.edm.schemas.SchemaQueryService;
 import com.openlattice.edm.schemas.manager.HazelcastSchemaManager;
 import com.openlattice.edm.schemas.postgres.PostgresSchemaQueryService;
 import com.openlattice.hazelcast.HazelcastQueue;
+import com.openlattice.scrunchie.search.ConductorElasticsearchImpl;
 import com.openlattice.ids.IdCipherManager;
-import com.openlattice.kindling.search.ConductorElasticsearchImpl;
 import com.openlattice.linking.LinkingConfiguration;
 import com.openlattice.linking.LinkingLogService;
 import com.openlattice.linking.Matcher;
@@ -171,11 +171,6 @@ public class LinkerServicesPod {
     }
 
     @Bean
-    public UserDirectoryService userDirectoryService() {
-        return new UserDirectoryService( auth0TokenProvider(), hazelcastInstance );
-    }
-
-    @Bean
     public Assembler assembler() {
         return new Assembler(
                 dbcs(),
@@ -217,11 +212,6 @@ public class LinkerServicesPod {
                 phoneNumberService(),
                 partitionManager(),
                 assembler() );
-    }
-
-    @Bean
-    public Auth0TokenProvider auth0TokenProvider() {
-        return new Auth0TokenProvider( auth0Configuration );
     }
 
     @Bean
