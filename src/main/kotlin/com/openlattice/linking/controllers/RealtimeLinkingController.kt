@@ -7,6 +7,7 @@ import com.openlattice.datastore.services.EdmManager
 import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.ids.IdCipherManager
 import com.openlattice.linking.*
+import com.openlattice.linking.RealtimeLinkingApi.*
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.PathVariable
@@ -17,7 +18,7 @@ import java.util.*
 import javax.inject.Inject
 
 @RestController
-@RequestMapping(RealtimeLinkingApi.CONTROLLER)
+@RequestMapping(CONTROLLER)
 class RealtimeLinkingController(
         hazelcastInstance: HazelcastInstance,
         lc: LinkingConfiguration,
@@ -44,7 +45,7 @@ class RealtimeLinkingController(
             justification = "lateinit prevents NPE here"
     )
     @RequestMapping(
-            path = [RealtimeLinkingApi.FINISHED + RealtimeLinkingApi.SET],
+            path = [FINISHED + SET],
             method = [RequestMethod.GET],
             produces = [MediaType.APPLICATION_JSON_VALUE]
     )
@@ -60,12 +61,12 @@ class RealtimeLinkingController(
     }
 
     @RequestMapping(
-            path = [RealtimeLinkingApi.MATCHED + RealtimeLinkingApi.LINKING_ID_PATH],
+            path = [MATCHED + LINKING_ENTITY_SET_ID_PATH + LINKING_ID_PATH],
             method = [RequestMethod.GET],
             produces = [MediaType.APPLICATION_JSON_VALUE])
     override fun getMatchedEntitiesForLinkingId(
-            @PathVariable(RealtimeLinkingApi.LINKING_ENTITY_SET_ID) linkingEntitySetId: UUID,
-            @PathVariable(RealtimeLinkingApi.LINKING_ID) linkingId: UUID
+            @PathVariable(LINKING_ENTITY_SET_ID) linkingEntitySetId: UUID,
+            @PathVariable(LINKING_ID) linkingId: UUID
     ): Set<MatchedEntityPair> {
         ensureAdminAccess()
 
