@@ -6,12 +6,11 @@ import com.openlattice.datastore.services.EdmManager
 import com.openlattice.linking.*
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings
 import org.springframework.http.MediaType
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.RequestMapping
-import org.springframework.web.bind.annotation.RequestMethod
-import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.bind.annotation.*
+import retrofit2.http.Body
 import java.util.*
 import javax.inject.Inject
+import kotlin.collections.HashMap
 import kotlin.collections.HashSet
 
 @RestController
@@ -50,6 +49,23 @@ class RealtimeLinkingController(
                 .toSet()
         val entitySetsNeedLinking = lqs.getEntitiesNotLinked(linkableEntitySets).map { it.first }
         return linkableEntitySets.minus(entitySetsNeedLinking)
+    }
+
+    @RequestMapping(
+            path = [RealtimeLinkingApi.MISSING],
+            method = [RequestMethod.POST],
+            produces = [MediaType.APPLICATION_JSON_VALUE]
+    )
+    override fun getEntitiesMissingLinking(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Set<UUID>> {
+        ensureAdminAccess()
+        val linkableEntitySets = lqs
+                .getLinkableEntitySets(linkableTypes, entitySetBlacklist, whitelist.orElse(setOf()))
+                .toSet()
+        val entitiesNeedLinking = HashMap<UUID, Set<UUID>>()
+                linkableEntitySets.forEach {
+            entitiesNeedLinking.put(it, lqs.getEntitiesNotLinked(setOf(it), 1000000).map { it.second }.toSet())
+        }
+        return entitiesNeedLinking
     }
 
     @RequestMapping(
