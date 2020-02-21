@@ -29,6 +29,7 @@ import com.openlattice.data.EntityDataKey
 import com.openlattice.data.storage.IndexingMetadataManager
 import com.openlattice.datastore.services.EdmManager
 import com.openlattice.datastore.services.EntitySetManager
+import com.openlattice.ids.IdCipherManager
 import com.openlattice.linking.*
 import com.openlattice.linking.graph.PostgresLinkingQueryService
 import com.openlattice.linking.util.PersonMetric
@@ -50,7 +51,8 @@ constructor(
         private val edm: EdmManager,
         private val linkingQueryService: PostgresLinkingQueryService,
         private val dataManager: IndexingMetadataManager,
-        private val entitySetManager: EntitySetManager
+        private val entitySetManager: EntitySetManager,
+        private val idCipherManager: IdCipherManager
 ) : LinkingFeedbackApi, AuthorizingComponent {
 
 
@@ -76,9 +78,7 @@ constructor(
 
         // ensure read access on all entity sets involved and the properties used for linking
         // make sure, that all entitysets are part of the linking entity set and entity ids have the provided linking id
-        linkingFeedbackCheck(
-                feedback.link + feedback.unlink,
-                feedback.linkingEntityDataKey)
+        linkingFeedbackCheck(feedback.link + feedback.unlink, feedback.linkingEntityDataKey)
 
         // add feedbacks
         val linkingEntities = feedback.link.toTypedArray()
@@ -108,17 +108,19 @@ constructor(
     }
 
     private fun linkingFeedbackCheck(entityDataKeys: Set<EntityDataKey>, linkingEntityDataKey: EntityDataKey) {
-        val linkingEntitySet = entitySetManager.getEntitySet(linkingEntityDataKey.entitySetId)!!
-        val entityKeyIdsOfLinkingId = linkingQueryService.getEntityKeyIdsByLinkingIds(
-                setOf(linkingEntityDataKey.entityKeyId),
-                linkingEntitySet.linkedEntitySets
-        ).first().second
+        val linkingEntitySetId = linkingEntityDataKey.entitySetId
+        val linkingEntitySet = entitySetManager.getEntitySet(linkingEntitySetId)!!
+
+        val decryptedLinkingId = idCipherManager.decryptId(linkingEntitySetId, linkingEntityDataKey.entityKeyId)
+        val entityKeyIdsOfLinkingId = linkingQueryService
+                .getEntityKeyIdsByLinkingIds(setOf(decryptedLinkingId), linkingEntitySet.linkedEntitySets)
+                .first().second
 
         entityDataKeys.forEach { entityDataKey ->
             require(linkingEntitySet.linkedEntitySets.contains(entityDataKey.entitySetId)) {
                 "Feedback can only be submitted for entities contained by linking entity set"
             }
-            require(entityKeyIdsOfLinkingId.contains(entityDataKey.entityKeyId)) {
+            require(entityKeyIdsOfLinkingId.contains(decryptedLinkingId)) {
                 "Feedback can only be submitted for entities with same linking id"
             }
 
@@ -128,7 +130,8 @@ constructor(
     }
 
     private fun createLinkingFeedbackCombinations(
-            entityDataKey: EntityDataKey, entityList: Array<EntityDataKey>, offset: Int, linked: Boolean): Int {
+            entityDataKey: EntityDataKey, entityList: Array<EntityDataKey>, offset: Int, linked: Boolean
+    ): Int {
         (offset until entityList.size).forEach {
             val elf = EntityLinkingFeedback(EntityKeyPair(entityDataKey, entityList[it]), linked)
 
@@ -142,13 +145,15 @@ constructor(
     @PostMapping(path = [LinkingFeedbackApi.ENTITY], produces = [MediaType.APPLICATION_JSON_VALUE])
     override fun getLinkingFeedbackOnEntity(
             @RequestParam(value = LinkingFeedbackApi.FEEDBACK_TYPE, required = false) feedbackType: FeedbackType,
-            @RequestBody entity: EntityDataKey): Iterable<EntityLinkingFeedback> {
+            @RequestBody entity: EntityDataKey
+    ): Iterable<EntityLinkingFeedback> {
         return feedbackService.getLinkingFeedbackOnEntity(feedbackType, entity)
     }
 
     @PostMapping(path = [LinkingFeedbackApi.FEATURES], produces = [MediaType.APPLICATION_JSON_VALUE])
     override fun getLinkingFeedbackWithFeatures(
-            @RequestBody entityPair: EntityKeyPair): EntityLinkingFeatures? {
+            @RequestBody entityPair: EntityKeyPair
+    ): EntityLinkingFeatures {
         val feedback = checkNotNull(feedbackService.getLinkingFeedback(entityPair))
         { "Linking feedback for entities ${entityPair.first} - ${entityPair.second} does not exist" }
 
