@@ -40,6 +40,7 @@ import com.openlattice.datastore.services.EdmManager;
 import com.openlattice.datastore.services.EntitySetManager;
 import com.openlattice.edm.PostgresEdmManager;
 import com.openlattice.ids.HazelcastIdGenerationService;
+import com.openlattice.ids.IdCipherManager;
 import com.openlattice.linking.BackgroundLinkingService;
 import com.openlattice.linking.Blocker;
 import com.openlattice.linking.DataLoader;
@@ -112,6 +113,9 @@ public class LinkerPostConfigurationServicesPod {
 
     @Inject
     private MetricRegistry metricRegistry;
+
+    @Inject
+    private IdCipherManager idCipherManager;
 
     @Bean
     public HazelcastIdGenerationService idGeneration() {
@@ -187,7 +191,7 @@ public class LinkerPostConfigurationServicesPod {
 
     @Bean
     public RealtimeLinkingController realtimeLinkingController() {
-        return new RealtimeLinkingController( linkingConfiguration, edm );
+        return new RealtimeLinkingController( hazelcastInstance, linkingConfiguration, edm, idCipherManager );
     }
 
     @Bean

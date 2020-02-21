@@ -55,7 +55,7 @@ constructor(
         private val idCipherManager: IdCipherManager
 ) : LinkingFeedbackApi, AuthorizingComponent {
 
-
+    // TODO change if we ever link other entity types
     private val personPropertyIds = PersonProperties.FQNS.map { edm.getPropertyTypeId(it) }
 
     companion object {
