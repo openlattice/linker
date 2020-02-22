@@ -70,16 +70,16 @@ class RealtimeLinkingController(
                 .intersect(entitySetIds)
         val nonLinkableRequestedEntitySets = entitySetIds.subtract(linkableEntitySets)
         if(nonLinkableRequestedEntitySets.isNotEmpty()) {
-            logger.warn("The following entitySets were queried for missing entities, " +
+            logger.warn("The following entitySets were queried for entities not yet linked, " +
                     "but are not linkable: $nonLinkableRequestedEntitySets")
         }
 
+        val entitiesNeedLinking = lqs
+                .getEntitiesNotLinked(linkableRequestedEntitySets, 100000000)
+                .groupBy {it.first}
+                .mapValues { (_, v) -> v.map{it.second}.toSet() }
 
 
-        val entitiesNeedLinking = HashMap<UUID, Set<UUID>>()
-        linkableRequestedEntitySets.forEach {
-            entitiesNeedLinking.put(it, lqs.getEntitiesNotLinked(setOf(it), 1000000).map { it.second }.toSet())
-        }
         return entitiesNeedLinking
     }
 
