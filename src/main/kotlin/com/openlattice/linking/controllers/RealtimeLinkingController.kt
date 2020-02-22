@@ -2,9 +2,11 @@ package com.openlattice.linking.controllers
 
 import com.openlattice.authorization.AuthorizationManager
 import com.openlattice.authorization.AuthorizingComponent
+import com.openlattice.data.storage.PostgresEntityDataQueryService
 import com.openlattice.datastore.services.EdmManager
 import com.openlattice.linking.*
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings
+import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.*
 import retrofit2.http.Body
@@ -19,6 +21,9 @@ class RealtimeLinkingController(
         lc: LinkingConfiguration,
         edm: EdmManager
 ) : RealtimeLinkingApi, AuthorizingComponent {
+    companion object {
+        private val logger = LoggerFactory.getLogger(RealtimeLinkingController::class.java)
+    }
     @Inject
     private lateinit var lqs: LinkingQueryService
 
@@ -58,11 +63,19 @@ class RealtimeLinkingController(
     )
     override fun getEntitiesMissingLinking(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Set<UUID>> {
         ensureAdminAccess()
-        val linkableRequestedEntitySets = lqs
+        val linkableEntitySets = lqs
                 .getLinkableEntitySets(linkableTypes, entitySetBlacklist, whitelist.orElse(setOf()))
                 .toSet()
+        val linkableRequestedEntitySets = linkableEntitySets
                 .intersect(entitySetIds)
-        
+        val nonLinkableRequestedEntitySets = entitySetIds.subtract(linkableEntitySets)
+        if(nonLinkableRequestedEntitySets.isNotEmpty()) {
+            logger.warn("The following entitySets were queried for missing entities, " +
+                    "but are not linkable: $nonLinkableRequestedEntitySets")
+        }
+
+
+
         val entitiesNeedLinking = HashMap<UUID, Set<UUID>>()
         linkableRequestedEntitySets.forEach {
             entitiesNeedLinking.put(it, lqs.getEntitiesNotLinked(setOf(it), 1000000).map { it.second }.toSet())
