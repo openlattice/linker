@@ -58,11 +58,13 @@ class RealtimeLinkingController(
     )
     override fun getEntitiesMissingLinking(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Set<UUID>> {
         ensureAdminAccess()
-        val linkableEntitySets = lqs
+        val linkableRequestedEntitySets = lqs
                 .getLinkableEntitySets(linkableTypes, entitySetBlacklist, whitelist.orElse(setOf()))
                 .toSet()
+                .intersect(entitySetIds)
+        
         val entitiesNeedLinking = HashMap<UUID, Set<UUID>>()
-                linkableEntitySets.forEach {
+        linkableRequestedEntitySets.forEach {
             entitiesNeedLinking.put(it, lqs.getEntitiesNotLinked(setOf(it), 1000000).map { it.second }.toSet())
         }
         return entitiesNeedLinking
