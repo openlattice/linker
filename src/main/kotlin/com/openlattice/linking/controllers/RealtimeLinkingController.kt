@@ -61,7 +61,7 @@ class RealtimeLinkingController(
             method = [RequestMethod.POST],
             produces = [MediaType.APPLICATION_JSON_VALUE]
     )
-    override fun getEntitiesMissingLinking(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Set<UUID>> {
+    override fun getEntitiesNotYetLinked(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Set<UUID>> {
         ensureAdminAccess()
         val linkableEntitySets = lqs
                 .getLinkableEntitySets(linkableTypes, entitySetBlacklist, whitelist.orElse(setOf()))
