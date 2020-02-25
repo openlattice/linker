@@ -75,7 +75,7 @@ class RealtimeLinkingController(
         }
 
         val entitiesNeedLinking = lqs
-                .getEntitiesNotLinked(linkableRequestedEntitySets, 100000000)
+                .getEntitiesNotLinked(linkableRequestedEntitySets, 100_000_000)
                 .groupBy {it.first}
                 .mapValues { (_, v) -> v.map{it.second}.toSet() }
 
