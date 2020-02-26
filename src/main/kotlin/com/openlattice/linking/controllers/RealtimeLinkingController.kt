@@ -74,13 +74,10 @@ class RealtimeLinkingController(
                     "but are not linkable: $nonLinkableRequestedEntitySets")
         }
 
-        val entitiesNeedLinking = lqs
+        return lqs
                 .getEntitiesNotLinked(linkableRequestedEntitySets, 100_000_000)
                 .groupBy {it.first}
                 .mapValues { (_, v) -> v.map{it.second}.toSet() }
-
-
-        return entitiesNeedLinking
     }
 
     @RequestMapping(
