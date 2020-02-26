@@ -61,7 +61,8 @@ class RealtimeLinkingController(
             method = [RequestMethod.POST],
             produces = [MediaType.APPLICATION_JSON_VALUE]
     )
-    override fun getEntitiesNotYetLinked(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Set<UUID>> {
+
+    override fun getEntitySetNotYetLinkedCount(@RequestBody entitySetIds: Set<UUID>): Map<UUID, Long> {
         ensureAdminAccess()
         val linkableEntitySets = lqs
                 .getLinkableEntitySets(linkableTypes, entitySetBlacklist, whitelist.orElse(setOf()))
@@ -75,9 +76,8 @@ class RealtimeLinkingController(
         }
 
         return lqs
-                .getEntitiesNotLinked(linkableRequestedEntitySets, 100_000_000)
-                .groupBy {it.first}
-                .mapValues { (_, v) -> v.map{it.second}.toSet() }
+                .getEntitySetLinkingCount(linkableRequestedEntitySets)
+                .toMap()
     }
 
     @RequestMapping(
