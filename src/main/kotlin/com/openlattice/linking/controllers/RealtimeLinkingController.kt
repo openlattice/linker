@@ -70,10 +70,6 @@ class RealtimeLinkingController(
         val linkableRequestedEntitySets = linkableEntitySets
                 .intersect(entitySetIds)
         val nonLinkableRequestedEntitySets = entitySetIds.subtract(linkableEntitySets)
-        if(nonLinkableRequestedEntitySets.isNotEmpty()) {
-            logger.warn("The following entitySets were queried for entities not yet linked, " +
-                    "but are not linkable: $nonLinkableRequestedEntitySets")
-        }
 
         return lqs
                 .getEntitySetLinkingCount(linkableRequestedEntitySets)
