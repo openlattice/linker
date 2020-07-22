@@ -25,14 +25,15 @@ import com.google.common.base.Stopwatch
 import com.google.common.collect.Sets
 import com.google.common.util.concurrent.ListeningExecutorService
 import com.hazelcast.core.HazelcastInstance
+import com.hazelcast.query.Predicates
 import com.openlattice.data.EntityDataKey
 import com.openlattice.data.EntityKeyIdService
 import com.openlattice.edm.set.EntitySetFlag
 import com.openlattice.hazelcast.HazelcastMap
 import com.openlattice.hazelcast.HazelcastQueue
+import com.openlattice.postgres.mapstores.EntitySetMapstore
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
-import java.sql.Connection
 import java.time.Instant
 import java.util.*
 import java.util.concurrent.Semaphore
@@ -46,8 +47,7 @@ internal const val MINIMUM_SCORE = 0.75
  * Performs realtime linking of individuals as they are integrated ino the system.
  */
 @Component
-class BackgroundLinkingService
-(
+class BackgroundLinkingService(
         private val executor: ListeningExecutorService,
         hazelcastInstance: HazelcastInstance,
         private val blocker: Blocker,
@@ -64,22 +64,36 @@ class BackgroundLinkingService
         private val logger = LoggerFactory.getLogger(BackgroundLinkingService::class.java)
     }
 
-
     private val entitySets = HazelcastMap.ENTITY_SETS.getMap(hazelcastInstance)
-
     private val linkingLocks = HazelcastMap.LINKING_LOCKS.getMap(hazelcastInstance)
+    private val candidates = HazelcastQueue.LINKING_CANDIDATES.getQueue( hazelcastInstance )
+    private val priorityEntitySets = configuration.whitelist.orElseGet { setOf() }
 
     @Suppress("UNUSED")
     private val enqueuer = executor.submit {
+
         try {
             while (true) {
+                val filteredLinkableEntitySetIds = entitySets.keySet(
+                        Predicates.and(
+                                Predicates.`in`(EntitySetMapstore.ENTITY_TYPE_ID_INDEX, *linkableTypes.toTypedArray()),
+                                Predicates.notEqual(EntitySetMapstore.FLAGS_INDEX, EntitySetFlag.LINKING)
+                        )
+                )
+
+                val rest = filteredLinkableEntitySetIds.asSequence().filter {
+                    !priorityEntitySets.contains(it)
+                }
+
+                val priority = priorityEntitySets.asSequence().filter {
+                    filteredLinkableEntitySetIds.contains(it)
+                }
+
                 //TODO: Switch to unlimited entity sets
-                entitySets.values
-                        .asSequence()
-                        .filter { linkableTypes.contains(it.entityTypeId) && !it.flags.contains(EntitySetFlag.LINKING) }
-                        .flatMap { es ->
-                            logger.debug("Starting to queue linking candidates from entity set {}", es.id)
-                            val forLinking = lqs.getEntitiesNeedingLinking(es.id, 2 * configuration.loadSize)
+                (priority + rest)
+                        .forEach { esid ->
+                            logger.debug("Starting to queue linking candidates from entity set {}", esid)
+                            val forLinking = lqs.getEntitiesNeedingLinking(esid, 2 * configuration.loadSize)
                                     .filter {
                                         val expiration = lockOrGetExpiration(it)
                                         logger.debug(
@@ -96,25 +110,18 @@ class BackgroundLinkingService
                                         } else expiration == null
                                     }
                             if (forLinking.isNotEmpty()) {
-                                logger.info("Entities needing linking: {}", forLinking)
+                                logger.info("Entities needing linking: {}", forLinking.size)
+                                logger.debug("Entities needing linking: {}", forLinking)
                             }
-                            forLinking.asSequence()
-                        }
-                        .chunked(configuration.loadSize)
-                        .forEach { keys ->
-                            candidates.addAll(keys)
-                            logger.info(
-                                    "Queued entities needing linking {} from ({}).",
-                                    keys,
-                                    entitySets.getAll(keys.map { it.entitySetId }.toSet()).values.map { it.name }
-                            )
+                            candidates.addAll(forLinking)
+                            logger.debug( "Queued entities needing linking {}", forLinking)
                         }
             }
         } catch (ex: Exception) {
             logger.info("Encountered error while updating candidates for linking.", ex)
         }
     }
-    private val candidates = HazelcastQueue.LINKING_CANDIDATES.getQueue( hazelcastInstance )
+
     private val limiter = Semaphore(configuration.parallelism)
 
     @Suppress("UNUSED")
@@ -163,9 +170,10 @@ class BackgroundLinkingService
                 val clusters = lqs.getClustersForIds(setOf(candidate))
                 val cluster = clusters.entries.first()
                 val clusterId = cluster.key
+                lateinit var scoredCluster: ScoredCluster
 
                 lqs.lockClustersForUpdates(setOf(clusterId)).use { conn ->
-                    val scoredCluster = cluster(candidate, cluster, ::completeLinkCluster)
+                    scoredCluster = cluster(candidate, cluster, ::completeLinkCluster)
                     if (scoredCluster.score <= MINIMUM_SCORE) {
                         logger.error(
                                 "Recalculated score {} of linking id {} with positives feedbacks did not pass minimum score {}",
@@ -174,9 +182,9 @@ class BackgroundLinkingService
                                 MINIMUM_SCORE
                         )
                     }
-
-                    insertMatches(conn, scoredCluster.clusterId, candidate, scoredCluster.cluster, false)
+                    lqs.insertMatchScores(conn, clusterId, scoredCluster.cluster)
                 }
+                insertMatches(clusterId, candidate, scoredCluster.cluster, false)
             } catch (ex: Exception) {
                 logger.error("An error occurred while performing linking.", ex)
                 throw IllegalStateException("Error occured while performing linking.", ex)
@@ -206,24 +214,23 @@ class BackgroundLinkingService
             //Decision that needs to be made is whether to start new cluster or merge into existing cluster.
             //No locks are required since any items that block to this element will be skipped.
             try {
-                val clusters = lqs.getClustersForIds(dataKeys)
-                lqs.lockClustersForUpdates(clusters.keys).use { conn ->
+                val result = lqs.lockClustersDoWorkAndCommit( candidate, dataKeys, { clusters ->
                     val maybeBestCluster = clusters
                             .asSequence()
                             .map { cluster -> cluster(candidate, cluster, ::completeLinkCluster) }
-                            .filter { scoredCluster -> scoredCluster.score > MINIMUM_SCORE }
-                            .maxBy { scoredCluster -> scoredCluster.score }
+                            .filter { it.score > MINIMUM_SCORE }
+                            .maxBy { it.score }
 
-                    if (maybeBestCluster != null) {
-                        return@use insertMatches(
-                                conn, maybeBestCluster.clusterId, candidate, maybeBestCluster.cluster, false
-                        )
+                    if ( maybeBestCluster != null ) {
+                        return@lockClustersDoWorkAndCommit Triple(maybeBestCluster.clusterId, maybeBestCluster.cluster, false)
                     }
-                    val clusterId = ids.reserveLinkingIds(1).first()
+                    val linkingId = ids.reserveLinkingIds(1).first()
                     val block = candidate to mapOf(candidate to elem)
+                    val cluster = matcher.match(block).second
                     //TODO: When creating new cluster do we really need to re-match or can we assume score of 1.0?
-                    return@use insertMatches(conn, clusterId, candidate, matcher.match(block).second, true)
-                }
+                    return@lockClustersDoWorkAndCommit Triple(linkingId, cluster, true)
+                })
+                insertMatches( result.first, candidate, result.second, result.third )
             } catch (ex: Exception) {
                 logger.error("An error occurred while performing linking.", ex)
                 throw IllegalStateException("Error occured while performing linking.", ex)
@@ -260,13 +267,11 @@ class BackgroundLinkingService
     }
 
     private fun insertMatches(
-            conn: Connection,
             linkingId: UUID,
             newMember: EntityDataKey,
             scores: Map<EntityDataKey, Map<EntityDataKey, Double>>,
             newCluster: Boolean
     ) {
-        lqs.insertMatchScores(conn, linkingId, scores)
         lqs.updateIdsTable(linkingId, newMember)
 
         var toRemove = setOf<EntityDataKey>()
@@ -310,18 +315,6 @@ class BackgroundLinkingService
      * @return Null if locked, expiration in millis otherwise.
      */
     private fun lockOrGetExpiration(candidate: EntityDataKey): Long? {
-//        try {
-//            linkingLocks.lock(candidate)
-//
-//            val expiration = linkingLocks[candidate]
-//            if (expiration == null || Instant.now().toEpochMilli() > expiration) {
-//                logger.info("Lock or get is refreshing expiration for {}", candidate)
-//                refreshExpiration(candidate)
-//            }
-//            return expiration
-//        } finally {
-//            linkingLocks.unlock(candidate)
-//        }
         return linkingLocks.putIfAbsent(
                 candidate,
                 Instant.now().plusMillis(LINKING_BATCH_TIMEOUT_MILLIS).toEpochMilli(),
@@ -374,5 +367,4 @@ data class ScoredCluster(
 
 private fun completeLinkCluster(matchedCluster: Map<EntityDataKey, Map<EntityDataKey, Double>>): Double {
     return matchedCluster.values.flatMap { it.values }.min() ?: 0.0
-//    return matchedCluster.values.max { it.values.max() }.java
 }

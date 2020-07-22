@@ -21,8 +21,10 @@
 package com.openlattice.linking.pods;
 
 import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.health.HealthCheckRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.geekbeast.hazelcast.HazelcastClientProvider;
+import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.hazelcast.core.HazelcastInstance;
 import com.openlattice.authorization.AuthorizationManager;
@@ -38,19 +40,8 @@ import com.openlattice.data.storage.partitions.PartitionManager;
 import com.openlattice.datastore.pods.ByteBlobServicePod;
 import com.openlattice.datastore.services.EdmManager;
 import com.openlattice.datastore.services.EntitySetManager;
-import com.openlattice.datastore.services.EntitySetService;
-import com.openlattice.edm.PostgresEdmManager;
 import com.openlattice.ids.HazelcastIdGenerationService;
-import com.openlattice.linking.BackgroundLinkingService;
-import com.openlattice.linking.Blocker;
-import com.openlattice.linking.DataLoader;
-import com.openlattice.linking.EdmCachingDataLoader;
-import com.openlattice.linking.LinkingConfiguration;
-import com.openlattice.linking.LinkingLogService;
-import com.openlattice.linking.LinkingQueryService;
-import com.openlattice.linking.Matcher;
-import com.openlattice.linking.PostgresLinkingFeedbackService;
-import com.openlattice.linking.PostgresLinkingLogService;
+import com.openlattice.linking.*;
 import com.openlattice.linking.blocking.ElasticsearchBlocker;
 import com.openlattice.linking.controllers.RealtimeLinkingController;
 import com.openlattice.linking.graph.PostgresLinkingQueryService;
@@ -94,9 +85,6 @@ public class LinkerPostConfigurationServicesPod {
     private ConductorElasticsearchApi elasticsearchApi;
 
     @Inject
-    private PostgresEdmManager pgEdmManager;
-
-    @Inject
     private PartitionManager partitionManager;
 
     @Inject
@@ -112,17 +100,22 @@ public class LinkerPostConfigurationServicesPod {
     private ObjectMapper defaultObjectMapper;
 
     @Inject
+    private EventBus eventBus;
+
+    @Inject
     private MetricRegistry metricRegistry;
+
+    @Inject
+    private HealthCheckRegistry healthCheckRegistry;
 
     @Bean
     public HazelcastIdGenerationService idGeneration() {
-        return new HazelcastIdGenerationService( hazelcastClientProvider,executor );
+        return new HazelcastIdGenerationService( hazelcastClientProvider );
     }
 
     @Bean
     public EntityKeyIdService idService() {
-        return new PostgresEntityKeyIdService( hazelcastClientProvider,
-                executor,
+        return new PostgresEntityKeyIdService(
                 hikariDataSource,
                 idGeneration(),
                 partitionManager );
@@ -130,7 +123,9 @@ public class LinkerPostConfigurationServicesPod {
 
     @Bean
     public PostgresEntityDataQueryService dataQueryService() {
+        //TODO: fix it to use read replica
         return new PostgresEntityDataQueryService(
+                hikariDataSource,
                 hikariDataSource,
                 byteBlobDataManager,
                 partitionManager
@@ -158,7 +153,15 @@ public class LinkerPostConfigurationServicesPod {
 
     @Bean
     public EntityDatastore entityDatastore() {
-        return new PostgresEntityDatastore( dataQueryService(), pgEdmManager, entitySetManager, metricRegistry );
+        return new PostgresEntityDatastore(
+                dataQueryService(),
+                edm,
+                entitySetManager,
+                metricRegistry,
+                eventBus,
+                postgresLinkingFeedbackQueryService(),
+                lqs()
+        );
     }
 
     @Bean
