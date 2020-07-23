@@ -69,7 +69,6 @@ class RealtimeLinkingController(
                 .toSet()
         val linkableRequestedEntitySets = linkableEntitySets
                 .intersect(entitySetIds)
-        val nonLinkableRequestedEntitySets = entitySetIds.subtract(linkableEntitySets)
 
         return lqs
                 .getEntitySetLinkingCount(linkableRequestedEntitySets)
