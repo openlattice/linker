@@ -140,9 +140,7 @@ public class LinkerServicesPod {
     public Assembler assembler() {
         return new Assembler(
                 dbcs(),
-                hikariDataSource,
                 authorizationManager(),
-                edmAuthorizationHelper(),
                 principalService(),
                 metricRegistry,
                 hazelcastInstance,
