@@ -117,8 +117,9 @@ class ElasticsearchBlocker(
                         .flatMap { entry ->
                             dataLoader
                                     .getEntityStream(entry.key, entry.value)
+                                    .entries
                                     .stream()
-                                    .map { EntityDataKey(entry.key, it.first) to it.second }
+                                    .map { EntityDataKey(entry.key, it.key) to it.value }
                         }
                         .asSequence()
                         .toMap()

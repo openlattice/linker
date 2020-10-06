@@ -31,5 +31,5 @@ import java.util.*
 interface DataLoader {
     fun getEntity(dataKey: EntityDataKey): Map<UUID, Set<Any>>
     fun getEntities(dataKeys: Set<EntityDataKey>): Map<EntityDataKey, Map<UUID, Set<Any>>>
-    fun getEntityStream(entitySetId: UUID, entityKeyIds: Set<UUID>): BasePostgresIterable<Pair<UUID, Map<UUID, Set<Any>>>>
+    fun getEntityStream(entitySetId: UUID, entityKeyIds: Set<UUID>): Map<UUID, Map<UUID, Set<Any>>>
 }

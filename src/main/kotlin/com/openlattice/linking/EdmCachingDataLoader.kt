@@ -66,14 +66,14 @@ class EdmCachingDataLoader(
                 .groupBy({ it.entitySetId }, { it.entityKeyId })
                 .mapValues { it.value.toSet() }
                 .flatMap { edkp ->
-                    getEntityStream(edkp.key, edkp.value).map { EntityDataKey(edkp.key, it.first) to it.second}
+                    getEntityStream(edkp.key, edkp.value).map { EntityDataKey(edkp.key, it.key) to it.value}
                 }
                 .toMap()
     }
 
     override fun getEntityStream(
             entitySetId: UUID, entityKeyIds: Set<UUID>
-    ): BasePostgresIterable<Pair<UUID, Map<UUID, Set<Any>>>> {
+    ): Map<UUID, Map<UUID, Set<Any>>> {
         return dataQueryService.getEntitySetWithPropertyTypeIdsIterable(
                 mapOf(entitySetId to Optional.of(entityKeyIds)),
                 mapOf(entitySetId to authorizedPropertyTypesCache.get())
