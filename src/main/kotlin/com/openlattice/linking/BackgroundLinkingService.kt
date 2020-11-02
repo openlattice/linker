@@ -23,6 +23,7 @@ package com.openlattice.linking
 
 import com.google.common.base.Stopwatch
 import com.google.common.collect.Sets
+import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.ListeningExecutorService
 import com.hazelcast.core.HazelcastInstance
 import com.hazelcast.query.Predicates
@@ -40,6 +41,7 @@ import java.time.Instant
 import java.util.*
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import kotlin.collections.LinkedHashSet
 
 internal const val REFRESH_PROPERTY_TYPES_INTERVAL_MILLIS = 30000L
 internal const val LINKING_BATCH_TIMEOUT_MILLIS = 120000L
@@ -71,27 +73,33 @@ class BackgroundLinkingService(
     private val candidates = HazelcastQueue.LINKING_CANDIDATES.getQueue( hazelcastInstance )
     private val priorityEntitySets = configuration.whitelist.orElseGet { setOf() }
 
+    private val onlyEntitySets = setOf(
+        UUID.fromString("212acbd0-d405-46ea-8580-f7b63581fcf7"),  //JC linked people
+        UUID.fromString("a09c4aea-1c9c-4dda-9b83-944049c5f259")  //JC inmates
+    )
+
     @Suppress("UNUSED")
     @Scheduled(fixedRate = LINKING_RATE)
     fun enqueue() {
         try {
-            val filteredLinkableEntitySetIds = entitySets.keySet(
-                    Predicates.and(
-                            Predicates.`in`<UUID,EntitySet>(EntitySetMapstore.ENTITY_TYPE_ID_INDEX, *linkableTypes.toTypedArray()),
-                            Predicates.notEqual<UUID,EntitySet>(EntitySetMapstore.FLAGS_INDEX, EntitySetFlag.LINKING)
-                    )
-            )
-
-            val rest = filteredLinkableEntitySetIds.asSequence().filter {
-                !priorityEntitySets.contains(it)
-            }
-
-            val priority = priorityEntitySets.asSequence().filter {
-                filteredLinkableEntitySetIds.contains(it)
-            }
-
-            //TODO: Switch to unlimited entity sets
-            (priority + rest)
+//            val filteredLinkableEntitySetIds = entitySets.keySet(
+//                    Predicates.and(
+//                            Predicates.`in`<UUID,EntitySet>(EntitySetMapstore.ENTITY_TYPE_ID_INDEX, *linkableTypes.toTypedArray()),
+//                            Predicates.notEqual<UUID,EntitySet>(EntitySetMapstore.FLAGS_INDEX, EntitySetFlag.LINKING)
+//                    )
+//            )
+//
+//            val rest = filteredLinkableEntitySetIds.asSequence().filter {
+//                !priorityEntitySets.contains(it)
+//            }
+//
+//            val priority = priorityEntitySets.asSequence().filter {
+//                filteredLinkableEntitySetIds.contains(it)
+//            }
+//
+//            //TODO: Switch to unlimited entity sets
+//            (priority + rest)
+            onlyEntitySets
                     .forEach { esid ->
                         logger.debug("Starting to queue linking candidates from entity set {}", esid)
                         val forLinking = lqs.getEntitiesNeedingLinking(esid, 2 * configuration.loadSize)
@@ -125,10 +133,16 @@ class BackgroundLinkingService(
     private val limiter = Semaphore(configuration.parallelism)
 
     @Suppress("UNUSED")
-    private val linkingWorker = if (isLinkingEnabled()) executor.submit {
-        while (true) {
-            try {
-                generateSequence(candidates::take)
+    private val linkingWorker: ListenableFuture<*>? = runEnqueuer()
+
+    private fun runEnqueuer(): ListenableFuture<*>? {
+        if ( !isLinkingEnabled() ){
+            return null
+        }
+        return executor.submit {
+            while (true) {
+                try {
+                    generateSequence(candidates::take)
                         .map { candidate ->
                             limiter.acquire()
                             executor.submit {
@@ -143,13 +157,12 @@ class BackgroundLinkingService(
                                 }
                             }
                         }.forEach { it.get() }
-            } catch (ex: Exception) {
-                logger.info("Encountered error while linking candidates.", ex)
+                } catch (ex: Exception) {
+                    logger.info("Encountered error while linking candidates.", ex)
+                }
             }
         }
-
-    } else null
-
+    }
 
     /**
      * Links a candidate entity to other matching entities.
@@ -160,6 +173,7 @@ class BackgroundLinkingService(
      *
      * @param candidate The data key for the entity to perform linking upon.
      */
+    @Throws(IllegalStateException::class)
     private fun link(candidate: EntityDataKey) {
         clearNeighborhoods(candidate)
         // if we have positive feedbacks on entity, we use its linking id and match them together
@@ -274,8 +288,7 @@ class BackgroundLinkingService(
         val scoresAsEsidToEkids = (collectKeys(scores) + newMember)
                 .groupBy { edk -> edk.entitySetId }
                 .mapValues { (_, edks) ->
-
-                    Sets.newLinkedHashSet(edks.map { it.entityKeyId })
+                    edks.map { it.entityKeyId }.toSet() as LinkedHashSet
                 }
         lqs.updateLinkingInformation( linkingId, newMember, scoresAsEsidToEkids )
     }
