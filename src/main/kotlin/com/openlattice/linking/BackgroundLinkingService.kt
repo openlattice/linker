@@ -84,7 +84,8 @@ class BackgroundLinkingService(
         try {
 //            val filteredLinkableEntitySetIds = entitySets.keySet(
 //                    Predicates.and(
-//                            Predicates.`in`<UUID,EntitySet>(EntitySetMapstore.ENTITY_TYPE_ID_INDEX, *linkableTypes.toTypedArray()),
+//                            Predicates.`in`<UUID,EntitySet>(EntitySetMapstore.ENTITY_TYPE_ID_INDEX,
+    //                            *linkableTypes.toTypedArray()),
 //                            Predicates.notEqual<UUID,EntitySet>(EntitySetMapstore.FLAGS_INDEX, EntitySetFlag.LINKING)
 //                    )
 //            )
@@ -288,7 +289,7 @@ class BackgroundLinkingService(
         val scoresAsEsidToEkids = (collectKeys(scores) + newMember)
                 .groupBy { edk -> edk.entitySetId }
                 .mapValues { (_, edks) ->
-                    edks.map { it.entityKeyId }.toSet() as LinkedHashSet
+                    edks.map{ it.entityKeyId }.toSet()
                 }
         lqs.updateLinkingInformation( linkingId, newMember, scoresAsEsidToEkids )
     }
